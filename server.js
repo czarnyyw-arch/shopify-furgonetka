@@ -21,8 +21,8 @@ function getPickupPoint(order) {
     const parsed = JSON.parse(raw);
 
     return {
-      id: parsed.pointId || null,                 // np. "inpost:OLK04M"
-      code: parsed.name || null,                  // np. "OLK04M"
+      id: parsed.pointId || null,
+      code: parsed.name || null,
       address: parsed.address || null,
       city: parsed.city || null,
       postcode: parsed.postCode || null,
@@ -39,7 +39,10 @@ function mapService(order) {
   const shippingCode = order.shipping_lines?.[0]?.code || "";
   const shippingTitle = order.shipping_lines?.[0]?.title || "";
 
-  if (shippingCode.toLowerCase().includes("inpost") || shippingTitle.toLowerCase().includes("inpost")) {
+  if (
+    shippingCode.toLowerCase().includes("inpost") ||
+    shippingTitle.toLowerCase().includes("inpost")
+  ) {
     return "inpost";
   }
 
@@ -65,7 +68,7 @@ function buildFurgonetkaOrderPayload(order) {
     cartId: String(order.id),
     datetimeOrder: order.created_at || new Date().toISOString(),
     service: mapService(order),
-    point: pickup.code, // 🔥 najważniejsze: np. OLK04M
+    point: pickup.code,
     codAmount: 0,
     comment: order.note || "",
     payment: {
@@ -87,13 +90,34 @@ function buildFurgonetkaOrderPayload(order) {
     },
     invoiceAddress: {
       company: order.billing_address?.company || "",
-      name: order.billing_address?.first_name || order.shipping_address?.first_name || "",
-      surname: order.billing_address?.last_name || order.shipping_address?.last_name || "",
-      street: order.billing_address?.address1 || order.shipping_address?.address1 || "",
-      city: order.billing_address?.city || order.shipping_address?.city || "",
-      postcode: order.billing_address?.zip || order.shipping_address?.zip || "",
-      countryCode: order.billing_address?.country_code || order.shipping_address?.country_code || "PL",
-      phone: order.billing_address?.phone || order.shipping_address?.phone || "",
+      name:
+        order.billing_address?.first_name ||
+        order.shipping_address?.first_name ||
+        "",
+      surname:
+        order.billing_address?.last_name ||
+        order.shipping_address?.last_name ||
+        "",
+      street:
+        order.billing_address?.address1 ||
+        order.shipping_address?.address1 ||
+        "",
+      city:
+        order.billing_address?.city ||
+        order.shipping_address?.city ||
+        "",
+      postcode:
+        order.billing_address?.zip ||
+        order.shipping_address?.zip ||
+        "",
+      countryCode:
+        order.billing_address?.country_code ||
+        order.shipping_address?.country_code ||
+        "PL",
+      phone:
+        order.billing_address?.phone ||
+        order.shipping_address?.phone ||
+        "",
       email: order.email || order.contact_email || ""
     },
     products: buildProducts(order)
@@ -119,6 +143,9 @@ app.post("/webhook/orders-create", async (req, res) => {
     console.log("=== PAYLOAD DO FURGONETKI ===");
     console.log(JSON.stringify(payload, null, 2));
 
+    console.log("=== URL FURGONETKI ===");
+    console.log(process.env.FURGONETKA_API_URL);
+
     const response = await axios.post(
       process.env.FURGONETKA_API_URL,
       payload,
@@ -137,7 +164,9 @@ app.post("/webhook/orders-create", async (req, res) => {
     return res.status(200).send("OK");
   } catch (error) {
     console.error("=== BLAD ===");
-    console.error(JSON.stringify(error.response?.data || { message: error.message }, null, 2));
+    console.error(
+      JSON.stringify(error.response?.data || { message: error.message }, null, 2)
+    );
     return res.status(500).send("BLAD");
   }
 });
