@@ -22,7 +22,7 @@ function getPickupPoint(order) {
 
     return {
       id: parsed.pointId || null,
-      code: parsed.name || null,
+      code: parsed.name || null, // np. OLK04M
       address: parsed.address || null,
       city: parsed.city || null,
       postcode: parsed.postCode || null,
@@ -35,7 +35,38 @@ function getPickupPoint(order) {
   }
 }
 
-function buildFurgonetkaPackagePayload(order) {
+function mapService(order) {
+  const shippingCode = (order.shipping_lines?.[0]?.code || "").toLowerCase();
+  const shippingTitle = (order.shipping_lines?.[0]?.title || "").toLowerCase();
+
+  if (shippingCode.includes("inpost") || shippingTitle.includes("inpost")) {
+    return "inpost";
+  }
+
+  if (shippingCode.includes("dpd") || shippingTitle.includes("dpd")) {
+    return "dpd";
+  }
+
+  if (shippingCode.includes("gls") || shippingTitle.includes("gls")) {
+    return "gls";
+  }
+
+  if (shippingCode.includes("ups") || shippingTitle.includes("ups")) {
+    return "ups";
+  }
+
+  return "inpost";
+}
+
+function buildProducts(order) {
+  return (order.line_items || []).map((item) => ({
+    name: item.title || item.name || "Produkt",
+    quantity: item.quantity || 1,
+    price: Number(item.price || 0)
+  }));
+}
+
+function buildFurgonetkaOrderPayload(order) {
   const pickupPoint = getPickupPoint(order);
 
   if (!pickupPoint || !pickupPoint.code) {
@@ -43,39 +74,62 @@ function buildFurgonetkaPackagePayload(order) {
   }
 
   return {
-    service_id: Number(process.env.FURGONETKA_SERVICE_ID || 1),
-
-    pickup: {
-      name: process.env.SENDER_NAME || "Nadawca",
-      company: process.env.SENDER_COMPANY || "",
-      street: process.env.SENDER_STREET || "UZUPELNIJ_ULICE",
-      postcode: process.env.SENDER_POSTCODE || "00-000",
-      city: process.env.SENDER_CITY || "UZUPELNIJ_MIASTO",
-      country_code: process.env.SENDER_COUNTRY_CODE || "PL",
-      phone: process.env.SENDER_PHONE || "000000000",
-      email: process.env.SENDER_EMAIL || "test@test.pl"
+    cartId: String(order.id),
+    datetimeOrder: order.created_at || new Date().toISOString(),
+    service: mapService(order),
+    point: pickupPoint.code, // KLUCZ: np. OLK04M
+    codAmount: 0,
+    comment: order.note || "",
+    payment: {
+      id: "paid"
     },
-
-    receiver: {
-      name: order.shipping_address?.name || "",
+    shipping: {
+      id: "shopify"
+    },
+    shippingAddress: {
       company: "",
-      street: pickupPoint.address || order.shipping_address?.address1 || "",
-      postcode: pickupPoint.postcode || order.shipping_address?.zip || "",
-      city: pickupPoint.city || order.shipping_address?.city || "",
-      country_code: order.shipping_address?.country_code || "PL",
+      name: order.shipping_address?.first_name || "",
+      surname: order.shipping_address?.last_name || "",
+      street: order.shipping_address?.address1 || "",
+      city: order.shipping_address?.city || "",
+      postcode: order.shipping_address?.zip || "",
+      countryCode: order.shipping_address?.country_code || "PL",
       phone: order.shipping_address?.phone || order.billing_address?.phone || "",
-      email: order.email || order.contact_email || "",
-      point: pickupPoint.code
+      email: order.email || order.contact_email || ""
     },
-
-    parcels: [
-      {
-        weight: 1,
-        width: 10,
-        height: 10,
-        length: 10
-      }
-    ]
+    invoiceAddress: {
+      company: order.billing_address?.company || "",
+      name:
+        order.billing_address?.first_name ||
+        order.shipping_address?.first_name ||
+        "",
+      surname:
+        order.billing_address?.last_name ||
+        order.shipping_address?.last_name ||
+        "",
+      street:
+        order.billing_address?.address1 ||
+        order.shipping_address?.address1 ||
+        "",
+      city:
+        order.billing_address?.city ||
+        order.shipping_address?.city ||
+        "",
+      postcode:
+        order.billing_address?.zip ||
+        order.shipping_address?.zip ||
+        "",
+      countryCode:
+        order.billing_address?.country_code ||
+        order.shipping_address?.country_code ||
+        "PL",
+      phone:
+        order.billing_address?.phone ||
+        order.shipping_address?.phone ||
+        "",
+      email: order.email || order.contact_email || ""
+    },
+    products: buildProducts(order)
   };
 }
 
@@ -87,7 +141,7 @@ app.post("/webhook/orders-create", async (req, res) => {
   try {
     const order = req.body;
     const pickupPoint = getPickupPoint(order);
-    const payload = buildFurgonetkaPackagePayload(order);
+    const payload = buildFurgonetkaOrderPayload(order);
 
     console.log("=== ODEBRANE ZAMOWIENIE ===");
     console.log(JSON.stringify(order, null, 2));
@@ -107,8 +161,7 @@ app.post("/webhook/orders-create", async (req, res) => {
       {
         headers: {
           Authorization: process.env.FURGONETKA_API_KEY,
-          "Content-Type": "application/json",
-          Accept: "application/vnd.furgonetka.v1+json"
+          "Content-Type": "application/json"
         },
         timeout: 30000
       }
