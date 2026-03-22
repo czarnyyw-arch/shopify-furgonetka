@@ -35,92 +35,47 @@ function getPickupPoint(order) {
   }
 }
 
-function mapService(order) {
-  const shippingCode = order.shipping_lines?.[0]?.code || "";
-  const shippingTitle = order.shipping_lines?.[0]?.title || "";
+function buildFurgonetkaPackagePayload(order) {
+  const pickupPoint = getPickupPoint(order);
 
-  if (
-    shippingCode.toLowerCase().includes("inpost") ||
-    shippingTitle.toLowerCase().includes("inpost")
-  ) {
-    return "inpost";
-  }
-
-  return "inpost";
-}
-
-function buildProducts(order) {
-  return (order.line_items || []).map((item) => ({
-    name: item.title || item.name || "Produkt",
-    quantity: item.quantity || 1,
-    price: Number(item.price || 0)
-  }));
-}
-
-function buildFurgonetkaOrderPayload(order) {
-  const pickup = getPickupPoint(order);
-
-  if (!pickup || !pickup.code) {
+  if (!pickupPoint || !pickupPoint.code) {
     throw new Error("Brak kodu paczkomatu w _pickup_point");
   }
 
   return {
-    cartId: String(order.id),
-    datetimeOrder: order.created_at || new Date().toISOString(),
-    service: mapService(order),
-    point: pickup.code,
-    codAmount: 0,
-    comment: order.note || "",
-    payment: {
-      id: "paid"
+    service_id: Number(process.env.FURGONETKA_SERVICE_ID || 1),
+
+    pickup: {
+      name: process.env.SENDER_NAME || "Nadawca",
+      company: process.env.SENDER_COMPANY || "",
+      street: process.env.SENDER_STREET || "UZUPELNIJ_ULICE",
+      postcode: process.env.SENDER_POSTCODE || "00-000",
+      city: process.env.SENDER_CITY || "UZUPELNIJ_MIASTO",
+      country_code: process.env.SENDER_COUNTRY_CODE || "PL",
+      phone: process.env.SENDER_PHONE || "000000000",
+      email: process.env.SENDER_EMAIL || "test@test.pl"
     },
-    shipping: {
-      id: "shopify"
-    },
-    shippingAddress: {
+
+    receiver: {
+      name: order.shipping_address?.name || "",
       company: "",
-      name: order.shipping_address?.first_name || "",
-      surname: order.shipping_address?.last_name || "",
-      street: pickup.address || order.shipping_address?.address1 || "",
-      city: pickup.city || order.shipping_address?.city || "",
-      postcode: pickup.postcode || order.shipping_address?.zip || "",
-      countryCode: order.shipping_address?.country_code || "PL",
+      street: pickupPoint.address || order.shipping_address?.address1 || "",
+      postcode: pickupPoint.postcode || order.shipping_address?.zip || "",
+      city: pickupPoint.city || order.shipping_address?.city || "",
+      country_code: order.shipping_address?.country_code || "PL",
       phone: order.shipping_address?.phone || order.billing_address?.phone || "",
-      email: order.email || order.contact_email || ""
+      email: order.email || order.contact_email || "",
+      point: pickupPoint.code
     },
-    invoiceAddress: {
-      company: order.billing_address?.company || "",
-      name:
-        order.billing_address?.first_name ||
-        order.shipping_address?.first_name ||
-        "",
-      surname:
-        order.billing_address?.last_name ||
-        order.shipping_address?.last_name ||
-        "",
-      street:
-        order.billing_address?.address1 ||
-        order.shipping_address?.address1 ||
-        "",
-      city:
-        order.billing_address?.city ||
-        order.shipping_address?.city ||
-        "",
-      postcode:
-        order.billing_address?.zip ||
-        order.shipping_address?.zip ||
-        "",
-      countryCode:
-        order.billing_address?.country_code ||
-        order.shipping_address?.country_code ||
-        "PL",
-      phone:
-        order.billing_address?.phone ||
-        order.shipping_address?.phone ||
-        "",
-      email: order.email || order.contact_email || ""
-    },
-    products: buildProducts(order)
+
+    parcels: [
+      {
+        weight: 1,
+        width: 10,
+        height: 10,
+        length: 10
+      }
+    ]
   };
 }
 
@@ -131,14 +86,14 @@ app.get("/", (req, res) => {
 app.post("/webhook/orders-create", async (req, res) => {
   try {
     const order = req.body;
-    const pickup = getPickupPoint(order);
-    const payload = buildFurgonetkaOrderPayload(order);
+    const pickupPoint = getPickupPoint(order);
+    const payload = buildFurgonetkaPackagePayload(order);
 
     console.log("=== ODEBRANE ZAMOWIENIE ===");
     console.log(JSON.stringify(order, null, 2));
 
     console.log("=== PACZKOMAT ===");
-    console.log(JSON.stringify(pickup, null, 2));
+    console.log(JSON.stringify(pickupPoint, null, 2));
 
     console.log("=== PAYLOAD DO FURGONETKI ===");
     console.log(JSON.stringify(payload, null, 2));
@@ -152,7 +107,8 @@ app.post("/webhook/orders-create", async (req, res) => {
       {
         headers: {
           Authorization: process.env.FURGONETKA_API_KEY,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          Accept: "application/vnd.furgonetka.v1+json"
         },
         timeout: 30000
       }
